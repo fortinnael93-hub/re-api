@@ -10,6 +10,9 @@ const adminRoutes = require('./routes/admin');
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.text());      // ← ajoute cette ligne
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ── Routes ────────────────────────────────────────────────
 app.use('/v2', authRoutes);          // /v2/auth, /v2/reauth
