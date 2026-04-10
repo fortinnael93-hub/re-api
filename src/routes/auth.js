@@ -110,12 +110,26 @@ router.post('/reauth', (req, res) => {
             return res.json({ error: 'Session expirée', type: 'error' });
         }
 
+        // Récupérer la config SFTP depuis l'env
+        const sftpHost = process.env.SFTP_HOST;
+        const sftpPrivateKey = process.env.SFTP_PRIVATE_KEY;
+
+        if (!sftpHost || !sftpPrivateKey) {
+            console.error('[reauth] SFTP_HOST ou SFTP_PRIVATE_KEY manquant dans .env');
+            return res.json({ error: 'Configuration SFTP manquante côté serveur', type: 'error' });
+        }
+
+        // Encoder en base64 comme attendu par le launcher
+        const hostB64 = Buffer.from(sftpHost).toString('base64');
+        const keyB64 = Buffer.from(sftpPrivateKey).toString('base64');
+
         return res.json({
-            error: null,
-            type: 'reauth.success',
+            error: 'reauth.success',
             token: accessToken,
             username: tokenRow.username,
-            role: tokenRow.role
+            role: tokenRow.role,
+            host: hostB64,
+            privateKey: keyB64
         });
 
     } catch (err) {
