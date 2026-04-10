@@ -58,16 +58,45 @@ router.get('/versions', requireAdmin, (req, res) => {
 
 // ── POST /admin/versions  ─────────────────────────────────
 router.post('/versions', requireAdmin, (req, res) => {
-    const { name, type } = req.body;
+    const { name, type, sftp_path } = req.body;
     if (!name) return res.status(400).json({ error: 'name requis' });
-    const result = db.prepare(`INSERT INTO launcher_versions (name, type) VALUES (?, ?)`).run(name, type || 'stable');
-    return res.json({ id: result.lastInsertRowid, name, type: type || 'stable' });
+    const path = sftp_path || `/versions/${name}`;
+    const result = db.prepare(`INSERT INTO launcher_versions (name, type, sftp_path) VALUES (?, ?, ?)`).run(name, type || 'stable', path);
+    return res.json({ id: result.lastInsertRowid, name, type: type || 'stable', sftp_path: path });
+});
+
+// ── PATCH /admin/versions/:id  ────────────────────────────
+router.patch('/versions/:id', requireAdmin, (req, res) => {
+    const { name, type, sftp_path, active } = req.body;
+    const fields = [];
+    const vals = [];
+    if (name !== undefined)      { fields.push('name = ?');      vals.push(name); }
+    if (type !== undefined)      { fields.push('type = ?');      vals.push(type); }
+    if (sftp_path !== undefined) { fields.push('sftp_path = ?'); vals.push(sftp_path); }
+    if (active !== undefined)    { fields.push('active = ?');    vals.push(active ? 1 : 0); }
+    if (!fields.length) return res.status(400).json({ error: 'Aucun champ à modifier' });
+    vals.push(req.params.id);
+    db.prepare(`UPDATE launcher_versions SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+    return res.json({ ok: true });
 });
 
 // ── DELETE /admin/versions/:id  ───────────────────────────
 router.delete('/versions/:id', requireAdmin, (req, res) => {
     db.prepare('DELETE FROM launcher_versions WHERE id = ?').run(req.params.id);
     return res.json({ ok: true });
+});
+
+// ── GET /admin/sftp  ─────────────────────────────────────
+// Vérifie la config SFTP actuelle (sans exposer la clé privée)
+router.get('/sftp', requireAdmin, (req, res) => {
+    const host = process.env.SFTP_HOST;
+    const key  = process.env.SFTP_PRIVATE_KEY;
+    return res.json({
+        configured: !!(host && key),
+        host: host || null,
+        privateKeySet: !!key,
+        note: 'Modifiez SFTP_HOST et SFTP_PRIVATE_KEY dans votre .env puis redémarrez.'
+    });
 });
 
 // ── GET /admin/news  ──────────────────────────────────────
