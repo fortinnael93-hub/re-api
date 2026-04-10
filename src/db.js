@@ -46,6 +46,7 @@ db.exec(`
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         name        TEXT    NOT NULL UNIQUE,
         type        TEXT    NOT NULL DEFAULT 'stable',
+        sftp_path   TEXT    NOT NULL DEFAULT '/versions/stable',
         active      INTEGER NOT NULL DEFAULT 1,
         created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
     );
@@ -67,8 +68,8 @@ db.exec(`
 
 const versionCount = db.prepare('SELECT COUNT(*) as c FROM launcher_versions').get();
 if (versionCount.c === 0) {
-    db.prepare(`INSERT INTO launcher_versions (name, type) VALUES (?, ?)`).run('stable', 'stable');
-    db.prepare(`INSERT INTO launcher_versions (name, type) VALUES (?, ?)`).run('beta', 'beta');
+    db.prepare(`INSERT INTO launcher_versions (name, type, sftp_path) VALUES (?, ?, ?)`).run('stable', 'stable', '/versions/stable');
+    db.prepare(`INSERT INTO launcher_versions (name, type, sftp_path) VALUES (?, ?, ?)`).run('beta', 'beta', '/versions/beta');
     console.log('✅ Versions par défaut créées (stable, beta)');
 }
 
