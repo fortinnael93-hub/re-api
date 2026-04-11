@@ -19,8 +19,15 @@ app.use('/launcher', launcherRoutes);
 app.use('/admin',    adminRoutes);
 app.use('/radio',    radioRoutes);
 
+// Fond d'écran par défaut du launcher
+app.get('/proxy_images/launcher', (req, res) => {
+    const url = process.env.LAUNCHER_BACKGROUND_URL;
+    if (!url) return res.status(404).json({ error: 'Aucun fond configuré' });
+    return res.redirect(url);
+});
+
 app.get('/', (req, res) => {
-    res.json({ status: 'ok', version: '2.0.0', name: 'NG Launcher API', db: 'supabase' });
+    res.json({ status: 'ok', version: '3.0.0', name: 'NG Launcher API' });
 });
 
 app.use((req, res) => {
@@ -34,7 +41,6 @@ app.use((err, req, res, _next) => {
 
 const PORT = process.env.PORT || 3000;
 
-// Initialiser la BDD AVANT de démarrer le serveur
 initDB()
     .then(() => {
         app.listen(PORT, '0.0.0.0', () => {
