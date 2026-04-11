@@ -122,3 +122,35 @@ router.delete('/news/:id', requireAdmin, (req, res) => {
 });
 
 module.exports = router;
+
+// ── GET /admin/alerts  ────────────────────────────────────
+router.get('/alerts', requireAdmin, (req, res) => {
+    return res.json(db.prepare('SELECT * FROM launcher_alerts ORDER BY created_at DESC').all());
+});
+
+// ── POST /admin/alerts  ───────────────────────────────────
+router.post('/alerts', requireAdmin, (req, res) => {
+    const { message, type } = req.body;
+    if (!message) return res.status(400).json({ error: 'message requis' });
+    const result = db.prepare("INSERT INTO launcher_alerts (message, type) VALUES (?, ?)").run(message, type || 'infos');
+    return res.json({ id: result.lastInsertRowid });
+});
+
+// ── PATCH /admin/alerts/:id  ──────────────────────────────
+router.patch('/alerts/:id', requireAdmin, (req, res) => {
+    const { message, type, active } = req.body;
+    const fields = [], vals = [];
+    if (message !== undefined) { fields.push('message = ?'); vals.push(message); }
+    if (type    !== undefined) { fields.push('type = ?');    vals.push(type); }
+    if (active  !== undefined) { fields.push('active = ?');  vals.push(active ? 1 : 0); }
+    if (!fields.length) return res.status(400).json({ error: 'Aucun champ à modifier' });
+    vals.push(req.params.id);
+    db.prepare(`UPDATE launcher_alerts SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+    return res.json({ ok: true });
+});
+
+// ── DELETE /admin/alerts/:id  ─────────────────────────────
+router.delete('/alerts/:id', requireAdmin, (req, res) => {
+    db.prepare('DELETE FROM launcher_alerts WHERE id = ?').run(req.params.id);
+    return res.json({ ok: true });
+});
