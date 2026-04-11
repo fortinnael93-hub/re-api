@@ -1,13 +1,6 @@
-const db = require('../db');
+const { db } = require('../db');
 
-/**
- * Middleware d'authentification universel.
- * Accepte le token via :
- *  - query: ?token=, ?authtoken=, ?accessToken=
- *  - header: x-auth-token, authorization (Bearer)
- *  - body:   accessToken, token
- */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
     const token =
         req.query.token ||
         req.query.authtoken ||
@@ -22,25 +15,22 @@ function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'invalidtoken', description: 'Token requis' });
     }
 
-    const tokenRow = db.prepare(`
+    const tokenRow = await db.get(`
         SELECT t.*, u.id as user_id, u.username, u.role, u.banned
         FROM tokens t
         JOIN users u ON u.id = t.user_id
-        WHERE t.token = ?
-    `).get(token);
+        WHERE t.token = $1
+    `, [token]);
 
     if (!tokenRow) {
-        return res.status(401).json({ error: 'invalidtoken', description: 'Token invalide ou expiré' });
+        return res.status(401).json({ error: 'invalidtoken', description: 'Token invalide' });
     }
-
     if (tokenRow.banned) {
-        return res.status(401).json({ error: 'banned', description: 'Votre compte a été banni' });
+        return res.status(401).json({ error: 'banned', description: 'Compte banni' });
     }
-
-    // Vérifier expiration
     if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-        db.prepare('DELETE FROM tokens WHERE token = ?').run(token);
-        return res.status(401).json({ error: 'tokenexpired', description: 'Session expirée, reconnectez-vous' });
+        await db.run('DELETE FROM tokens WHERE token = $1', [token]);
+        return res.status(401).json({ error: 'tokenexpired', description: 'Session expirée' });
     }
 
     req.user = tokenRow;
