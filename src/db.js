@@ -1,95 +1,117 @@
-const Database = require('better-sqlite3');
-const path     = require('path');
-const fs       = require('fs');
+const { Pool } = require('pg');
 
-const DB_PATH = path.join(__dirname, '../../data/launcher.db');
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
 
-const db = new Database(DB_PATH);
+// Helper : remplace better-sqlite3 .get() / .all() / .run() par des appels async
+// On expose un objet `db` avec les mêmes méthodes mais en async/await
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = {
+    // Exécute une requête et retourne la première ligne
+    async get(sql, params = []) {
+        const { rows } = await pool.query(sql, params);
+        return rows[0] || null;
+    },
+    // Exécute une requête et retourne toutes les lignes
+    async all(sql, params = []) {
+        const { rows } = await pool.query(sql, params);
+        return rows;
+    },
+    // Exécute une requête sans retour de données (INSERT/UPDATE/DELETE)
+    async run(sql, params = []) {
+        const result = await pool.query(sql, params);
+        return { lastInsertRowid: result.rows[0]?.id || null, changes: result.rowCount };
+    },
+    // Accès direct au pool pour les transactions
+    pool
+};
 
-// ── Tables ────────────────────────────────────────────────
-db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        username   TEXT    NOT NULL UNIQUE,
-        email      TEXT    NOT NULL UNIQUE,
-        password   TEXT    NOT NULL,
-        role       TEXT    NOT NULL DEFAULT 'user',
-        banned     INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-        last_login TEXT
-    );
+// ── Création des tables (à l'init) ───────────────────────
+async function initDB() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id         SERIAL PRIMARY KEY,
+            username   TEXT    NOT NULL UNIQUE,
+            email      TEXT    NOT NULL UNIQUE,
+            password   TEXT    NOT NULL,
+            role       TEXT    NOT NULL DEFAULT 'user',
+            banned     INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    NOT NULL DEFAULT (NOW()::text),
+            last_login TEXT
+        );
 
-    CREATE TABLE IF NOT EXISTS tokens (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id    INTEGER NOT NULL,
-        token      TEXT    NOT NULL UNIQUE,
-        cuid       TEXT,
-        mac        TEXT,
-        hddid      TEXT,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-        expires_at TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+        CREATE TABLE IF NOT EXISTS tokens (
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token      TEXT    NOT NULL UNIQUE,
+            cuid       TEXT,
+            mac        TEXT,
+            hddid      TEXT,
+            created_at TEXT    NOT NULL DEFAULT (NOW()::text),
+            expires_at TEXT
+        );
 
-    CREATE TABLE IF NOT EXISTS launcher_versions (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        name       TEXT    NOT NULL UNIQUE,
-        type       TEXT    NOT NULL DEFAULT 'stable',
-        sftp_path  TEXT    NOT NULL DEFAULT '/versions/stable',
-        active     INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
+        CREATE TABLE IF NOT EXISTS launcher_versions (
+            id         SERIAL PRIMARY KEY,
+            name       TEXT    NOT NULL UNIQUE,
+            type       TEXT    NOT NULL DEFAULT 'stable',
+            sftp_path  TEXT    NOT NULL DEFAULT '/versions/stable',
+            active     INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT    NOT NULL DEFAULT (NOW()::text)
+        );
 
-    CREATE TABLE IF NOT EXISTS skins (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id    INTEGER NOT NULL,
-        skin_id    TEXT    NOT NULL UNIQUE,
-        skin_name  TEXT    NOT NULL,
-        skin_file  TEXT,
-        selected   INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+        CREATE TABLE IF NOT EXISTS skins (
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            skin_id    TEXT    NOT NULL UNIQUE,
+            skin_name  TEXT    NOT NULL,
+            skin_file  TEXT,
+            selected   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    NOT NULL DEFAULT (NOW()::text)
+        );
 
-    CREATE TABLE IF NOT EXISTS launcher_news (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        title       TEXT    NOT NULL,
-        description TEXT,
-        thumbnail   TEXT,
-        url         TEXT,
-        tags        TEXT    DEFAULT '',
-        type        TEXT    DEFAULT 'article',
-        active      INTEGER NOT NULL DEFAULT 1,
-        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
+        CREATE TABLE IF NOT EXISTS launcher_news (
+            id          SERIAL PRIMARY KEY,
+            title       TEXT    NOT NULL,
+            description TEXT,
+            thumbnail   TEXT,
+            url         TEXT,
+            tags        TEXT    DEFAULT '',
+            type        TEXT    DEFAULT 'article',
+            active      INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT    NOT NULL DEFAULT (NOW()::text)
+        );
 
-    CREATE TABLE IF NOT EXISTS launcher_alerts (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        message    TEXT    NOT NULL,
-        type       TEXT    NOT NULL DEFAULT 'infos',
-        active     INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-    );
-`);
+        CREATE TABLE IF NOT EXISTS launcher_alerts (
+            id         SERIAL PRIMARY KEY,
+            message    TEXT    NOT NULL,
+            type       TEXT    NOT NULL DEFAULT 'infos',
+            active     INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT    NOT NULL DEFAULT (NOW()::text)
+        );
+    `);
 
-// ── Seed : données par défaut ─────────────────────────────
-const versionCount = db.prepare('SELECT COUNT(*) as c FROM launcher_versions').get();
-if (versionCount.c === 0) {
-    db.prepare("INSERT INTO launcher_versions (name, type, sftp_path) VALUES (?, ?, ?)").run('stable', 'stable', '/versions/stable');
-    db.prepare("INSERT INTO launcher_versions (name, type, sftp_path) VALUES (?, ?, ?)").run('beta',   'beta',   '/versions/beta');
-    console.log('✅ Versions par défaut créées (stable, beta)');
+    // Seed versions
+    const versionCount = await db.get('SELECT COUNT(*) as c FROM launcher_versions');
+    if (parseInt(versionCount.c) === 0) {
+        await db.run("INSERT INTO launcher_versions (name, type, sftp_path) VALUES ($1, $2, $3)", ['stable', 'stable', '/versions/stable']);
+        await db.run("INSERT INTO launcher_versions (name, type, sftp_path) VALUES ($1, $2, $3)", ['beta', 'beta', '/versions/beta']);
+        console.log('✅ Versions par défaut créées');
+    }
+
+    // Seed news
+    const newsCount = await db.get('SELECT COUNT(*) as c FROM launcher_news');
+    if (parseInt(newsCount.c) === 0) {
+        await db.run(
+            "INSERT INTO launcher_news (title, description, thumbnail, url, tags, type) VALUES ($1, $2, $3, $4, $5, $6)",
+            ['Bienvenue sur le launcher !', 'Le launcher custom est opérationnel.', '', '', 'news,update', 'article']
+        );
+        console.log('✅ News par défaut créée');
+    }
+
+    console.log('✅ Base de données initialisée');
 }
 
-const newsCount = db.prepare('SELECT COUNT(*) as c FROM launcher_news').get();
-if (newsCount.c === 0) {
-    db.prepare("INSERT INTO launcher_news (title, description, thumbnail, url, tags, type) VALUES (?, ?, ?, ?, ?, ?)")
-      .run('Bienvenue sur le launcher !', 'Le launcher custom est maintenant opérationnel.', '', '', 'news,update', 'article');
-    console.log('✅ News par défaut créée');
-}
-
-module.exports = db;
+module.exports = { db, initDB };
