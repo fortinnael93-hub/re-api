@@ -2,6 +2,9 @@ const express = require('express');
 const router  = express.Router();
 const { db }  = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const axios   = require('axios');
+
+const GITHUB_BASE = 'https://media.githubusercontent.com/media/fortinnael93-hub/modpack-relaunch/master';
 
 // ── GET /launcher/home ────────────────────────────────────
 router.get('/home', requireAuth, async (req, res) => {
@@ -39,7 +42,6 @@ router.get('/home', requireAuth, async (req, res) => {
         const userId   = req.user.user_id;
         const userRole = req.user.role;
 
-        // ── FIX : m.id doit apparaître dans le SELECT pour ORDER BY avec DISTINCT
         const visibleModpacks = await db.all(`
             SELECT DISTINCT m.id, m.name, m.display_name, m.background_url
             FROM modpacks m
@@ -69,7 +71,6 @@ router.get('/home', requireAuth, async (req, res) => {
 router.get('/versions', requireAuth, async (req, res) => {
     const userId   = req.user.user_id;
     const userRole = req.user.role;
-    // ── FIX : m.id dans le SELECT
     const modpacks = await db.all(`
         SELECT DISTINCT m.id, m.name FROM modpacks m
         LEFT JOIN modpack_roles mr ON mr.modpack_id = m.id
@@ -119,7 +120,6 @@ router.get('/getMoreMods', requireAuth, async (req, res) => {
     try {
         const userId   = req.user.user_id;
         const userRole = req.user.role;
-        // ── FIX : m.id dans le SELECT
         const modpacks = await db.all(`
             SELECT DISTINCT m.id, m.name, m.display_name, m.description, m.background_url
             FROM modpacks m
@@ -223,6 +223,31 @@ router.post('/uploadScreen', requireAuth, async (req, res) => {
 // ── POST /launcher/uploadCrash ────────────────────────────
 router.post('/uploadCrash', async (req, res) => {
     return res.json({ ok: true, message: 'Crash report reçu' });
+});
+
+// ═══════════════════════════════════════════════════════════
+// MODPACKS — Téléchargement via GitHub LFS
+// ═══════════════════════════════════════════════════════════
+
+// Manifest d'un modpack
+router.get('/versions/:modpack/manifest_:name.json', requireAuth, async (req, res) => {
+    const { modpack } = req.params;
+    try {
+        const url = `${GITHUB_BASE}/${modpack}/manifest_${modpack}.json`;
+        const response = await axios.get(url);
+        res.json(response.data);
+    } catch (err) {
+        console.error('[launcher/manifest]', err.message);
+        res.status(404).json({ error: 'Manifest introuvable' });
+    }
+});
+
+// Fichiers d'un modpack (mods, etc.)
+router.get('/versions/:modpack/files/*', requireAuth, async (req, res) => {
+    const { modpack } = req.params;
+    const filePath = req.params[0];
+    const url = `${GITHUB_BASE}/${modpack}/${filePath}`;
+    res.redirect(url);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
