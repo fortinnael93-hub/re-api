@@ -30,18 +30,18 @@ router.get('/home', requireAuth, async (req, res) => {
             thumbnail: '', url: '', tags: 'news', date: new Date().toISOString()
         };
 
-        const patchnote    = { link: process.env.PATCHNOTE_URL || 'https://github.com' };
-        const playerCount  = await db.get(
-            "SELECT COUNT(DISTINCT user_id) as count FROM tokens WHERE expires_at > NOW()::text OR expires_at IS NULL"
+        const patchnote   = { link: process.env.PATCHNOTE_URL || 'https://github.com' };
+        const playerCount = await db.get(
+            "SELECT COUNT(DISTINCT user_id) as count FROM tokens WHERE (expires_at IS NULL OR expires_at::timestamp > NOW())"
         );
         const players = { players: parseInt(playerCount?.count) || 0 };
 
-        // Modpacks visibles par cet utilisateur (par rôle OU par accès direct)
         const userId   = req.user.user_id;
         const userRole = req.user.role;
 
+        // ── FIX : m.id doit apparaître dans le SELECT pour ORDER BY avec DISTINCT
         const visibleModpacks = await db.all(`
-            SELECT DISTINCT m.name, m.display_name, m.background_url
+            SELECT DISTINCT m.id, m.name, m.display_name, m.background_url
             FROM modpacks m
             LEFT JOIN modpack_roles mr ON mr.modpack_id = m.id
             LEFT JOIN modpack_users mu ON mu.modpack_id = m.id
@@ -52,7 +52,6 @@ router.get('/home', requireAuth, async (req, res) => {
 
         const versions = { tags: visibleModpacks.map(m => m.name) };
 
-        // Fond d'écran du modpack actuel (envoyé en bonus)
         const backgrounds = {};
         visibleModpacks.forEach(m => {
             if (m.background_url) backgrounds[m.name] = m.background_url;
@@ -70,8 +69,9 @@ router.get('/home', requireAuth, async (req, res) => {
 router.get('/versions', requireAuth, async (req, res) => {
     const userId   = req.user.user_id;
     const userRole = req.user.role;
+    // ── FIX : m.id dans le SELECT
     const modpacks = await db.all(`
-        SELECT DISTINCT m.name FROM modpacks m
+        SELECT DISTINCT m.id, m.name FROM modpacks m
         LEFT JOIN modpack_roles mr ON mr.modpack_id = m.id
         LEFT JOIN modpack_users mu ON mu.modpack_id = m.id
         WHERE m.active = 1 AND (mr.role = $1 OR mu.user_id = $2)
@@ -81,7 +81,6 @@ router.get('/versions', requireAuth, async (req, res) => {
 });
 
 // ── GET /launcher/background/:modpack ────────────────────
-// Retourne le fond d'écran d'un modpack spécifique
 router.get('/background/:modpack', requireAuth, async (req, res) => {
     const userId   = req.user.user_id;
     const userRole = req.user.role;
@@ -98,7 +97,6 @@ router.get('/background/:modpack', requireAuth, async (req, res) => {
 });
 
 // ── GET /proxy_images/launcher ───────────────────────────
-// Fond d'écran par défaut du launcher (configurable via .env)
 router.get('/../../proxy_images/launcher', (req, res) => {
     const url = process.env.LAUNCHER_BACKGROUND_URL;
     if (!url) return res.status(404).json({ error: 'Aucun fond configuré' });
@@ -108,7 +106,7 @@ router.get('/../../proxy_images/launcher', (req, res) => {
 // ── GET /launcher/players (public) ───────────────────────
 router.get('/players', async (req, res) => {
     const count = await db.get(
-        "SELECT COUNT(DISTINCT user_id) as count FROM tokens WHERE expires_at > NOW()::text OR expires_at IS NULL"
+        "SELECT COUNT(DISTINCT user_id) as count FROM tokens WHERE (expires_at IS NULL OR expires_at::timestamp > NOW())"
     );
     return res.json({ players: parseInt(count?.count) || 0 });
 });
@@ -117,13 +115,13 @@ router.get('/getNotifications',    requireAuth, (req, res) => res.json({}));
 router.get('/updateNotifications', (req, res) => res.json({ ok: true }));
 
 // ── GET /launcher/getMoreMods ─────────────────────────────
-// Route manquante : retourne la liste complète des modpacks visibles
 router.get('/getMoreMods', requireAuth, async (req, res) => {
     try {
         const userId   = req.user.user_id;
         const userRole = req.user.role;
+        // ── FIX : m.id dans le SELECT
         const modpacks = await db.all(`
-            SELECT DISTINCT m.name, m.display_name, m.description, m.background_url
+            SELECT DISTINCT m.id, m.name, m.display_name, m.description, m.background_url
             FROM modpacks m
             LEFT JOIN modpack_roles mr ON mr.modpack_id = m.id
             LEFT JOIN modpack_users mu ON mu.modpack_id = m.id
@@ -139,7 +137,6 @@ router.get('/getMoreMods', requireAuth, async (req, res) => {
 });
 
 // ── GET /launcher/current_live2 ───────────────────────────
-// Route manquante : retourne les infos live actuelles
 router.get('/current_live2', async (req, res) => {
     try {
         const newsRow = await db.get(
@@ -207,7 +204,6 @@ router.get('/skin-render/:skinId', requireAuth, async (req, res) => {
     );
     if (!skin || !skin.skin_file) return res.status(404).json({ error: 'Skin not found' });
 
-    // Enlève le préfixe data:image/png;base64,
     const base64 = skin.skin_file.includes(',') ? skin.skin_file.split(',')[1] : skin.skin_file;
     const buffer = Buffer.from(base64, 'base64');
 
@@ -219,21 +215,25 @@ router.get('/skin-render/:skinId', requireAuth, async (req, res) => {
 router.post('/skins', requireAuth, handleSkins);
 router.get('/skins', (req, res, next) => { req.body = { ...req.query }; next(); }, requireAuth, handleSkins);
 
+// ── POST /launcher/uploadScreen ───────────────────────────
+router.post('/uploadScreen', requireAuth, async (req, res) => {
+    return res.json({ ok: true, message: 'Screenshot reçu' });
+});
+
+// ── POST /launcher/uploadCrash ────────────────────────────
+router.post('/uploadCrash', async (req, res) => {
+    return res.json({ ok: true, message: 'Crash report reçu' });
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
-// TWITCH — Token + Proxy streams + Recherche par tag
-//
-// Variables d'environnement requises dans .env :
-//   TWITCH_CLIENT_ID     = votre Client ID  (https://dev.twitch.tv/console)
-//   TWITCH_CLIENT_SECRET = votre Client Secret
+// TWITCH
 // ═════════════════════════════════════════════════════════════════════════════
 
 const https = require('https');
 
-// ── Cache du token app Twitch (valable ~60 jours, on le renouvelle auto) ──────
 let _twitchTokenCache = null;
 
 async function getTwitchAppToken() {
-    // Retourne le token en cache s'il est encore valide (marge de 5 min)
     if (_twitchTokenCache && _twitchTokenCache.expiresAt > Date.now() + 300_000) {
         return _twitchTokenCache.token;
     }
@@ -245,7 +245,6 @@ async function getTwitchAppToken() {
         throw new Error('TWITCH_CLIENT_ID et TWITCH_CLIENT_SECRET doivent être définis dans .env');
     }
 
-    // Appel OAuth Twitch pour obtenir un App Access Token
     const body = `client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`;
 
     const data = await new Promise((resolve, reject) => {
@@ -277,7 +276,6 @@ async function getTwitchAppToken() {
     return _twitchTokenCache.token;
 }
 
-// ── Helper : appel API Twitch Helix ──────────────────────────────────────────
 function twitchGet(path, token) {
     return new Promise((resolve, reject) => {
         const req = https.request({
@@ -301,8 +299,6 @@ function twitchGet(path, token) {
     });
 }
 
-// ── GET /launcher/twitch_token ────────────────────────────────────────────────
-// Retourne un App Access Token Twitch (sans exposer le client_secret au client)
 router.get('/twitch_token', async (req, res) => {
     try {
         const token = await getTwitchAppToken();
@@ -313,9 +309,6 @@ router.get('/twitch_token', async (req, res) => {
     }
 });
 
-// ── GET /launcher/twitch_streams?user_login=xxx&user_login=yyy ───────────────
-// Proxy vers GET /helix/streams — retourne les streams en live pour les logins donnés
-// Format réponse : { data: [ { user_login, user_name, title, thumbnail_url, ... } ] }
 router.get('/twitch_streams', async (req, res) => {
     try {
         const logins = [].concat(req.query.user_login || []).filter(Boolean);
@@ -332,10 +325,6 @@ router.get('/twitch_streams', async (req, res) => {
     }
 });
 
-// ── GET /launcher/twitch_search?query=xxx ────────────────────────────────────
-// Proxy vers GET /helix/search/channels — cherche les streams dont le titre
-// contient le mot-clé (ex: @Le_Refuge_Emeraudien)
-// Format réponse : { data: [ { broadcaster_login, display_name, title, is_live, thumbnail_url } ] }
 router.get('/twitch_search', async (req, res) => {
     try {
         const query = req.query.query;
@@ -343,30 +332,25 @@ router.get('/twitch_search', async (req, res) => {
 
         const token = await getTwitchAppToken();
 
-        // On cherche les channels correspondants (max 20 résultats)
         const data = await twitchGet(
             `/helix/search/channels?query=${encodeURIComponent(query)}&first=20&live_only=true`,
             token
         );
 
-        // Filtre : seulement les streams en live dont le titre contient vraiment le tag
         const filtered = (data.data || []).filter(s =>
             s.is_live &&
             s.title &&
             s.title.toLowerCase().includes(query.toLowerCase())
         );
 
-        // Pour les streams filtrés, on récupère les vraies thumbnails via /helix/streams
         if (filtered.length > 0) {
             const loginParams = filtered.map(s => `user_login=${encodeURIComponent(s.broadcaster_login)}`).join('&');
             const streamsData = await twitchGet(`/helix/streams?${loginParams}&first=20`, token);
 
-            // Enrichit chaque résultat avec la vraie thumbnail
             const thumbMap = new Map((streamsData.data || []).map(s => [s.user_login.toLowerCase(), s.thumbnail_url]));
             filtered.forEach(s => {
                 const thumb = thumbMap.get(s.broadcaster_login.toLowerCase());
                 if (thumb) s.thumbnail_url = thumb;
-                // Normalise les champs pour correspondre au format /helix/streams
                 s.user_login = s.broadcaster_login;
                 s.user_name  = s.display_name;
             });
@@ -380,18 +364,3 @@ router.get('/twitch_search', async (req, res) => {
 });
 
 module.exports = router;
-
-// ── POST /launcher/uploadScreen ───────────────────────────
-// Route manquante : upload de screenshot (stub fonctionnel)
-router.post('/uploadScreen', requireAuth, async (req, res) => {
-    // Implémentation basique : retourne succès
-    // À compléter selon vos besoins de stockage
-    return res.json({ ok: true, message: 'Screenshot reçu' });
-});
-
-// ── POST /launcher/uploadCrash ────────────────────────────
-// Route manquante : upload de crash report (stub fonctionnel)
-router.post('/uploadCrash', async (req, res) => {
-    // Implémentation basique : retourne succès
-    return res.json({ ok: true, message: 'Crash report reçu' });
-});
