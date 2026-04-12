@@ -219,6 +219,166 @@ router.get('/skin-render/:skinId', requireAuth, async (req, res) => {
 router.post('/skins', requireAuth, handleSkins);
 router.get('/skins', (req, res, next) => { req.body = { ...req.query }; next(); }, requireAuth, handleSkins);
 
+// ═════════════════════════════════════════════════════════════════════════════
+// TWITCH — Token + Proxy streams + Recherche par tag
+//
+// Variables d'environnement requises dans .env :
+//   TWITCH_CLIENT_ID     = votre Client ID  (https://dev.twitch.tv/console)
+//   TWITCH_CLIENT_SECRET = votre Client Secret
+// ═════════════════════════════════════════════════════════════════════════════
+
+const https = require('https');
+
+// ── Cache du token app Twitch (valable ~60 jours, on le renouvelle auto) ──────
+let _twitchTokenCache = null;
+
+async function getTwitchAppToken() {
+    // Retourne le token en cache s'il est encore valide (marge de 5 min)
+    if (_twitchTokenCache && _twitchTokenCache.expiresAt > Date.now() + 300_000) {
+        return _twitchTokenCache.token;
+    }
+
+    const clientId     = process.env.TWITCH_CLIENT_ID;
+    const clientSecret = process.env.TWITCH_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+        throw new Error('TWITCH_CLIENT_ID et TWITCH_CLIENT_SECRET doivent être définis dans .env');
+    }
+
+    // Appel OAuth Twitch pour obtenir un App Access Token
+    const body = `client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`;
+
+    const data = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'id.twitch.tv',
+            path:     '/oauth2/token',
+            method:   'POST',
+            headers:  { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': body.length }
+        }, res => {
+            let raw = '';
+            res.on('data', c => raw += c);
+            res.on('end', () => {
+                try { resolve(JSON.parse(raw)); }
+                catch (e) { reject(e); }
+            });
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+
+    if (!data.access_token) throw new Error('Token Twitch invalide : ' + JSON.stringify(data));
+
+    _twitchTokenCache = {
+        token:     data.access_token,
+        expiresAt: Date.now() + (data.expires_in * 1000)
+    };
+
+    return _twitchTokenCache.token;
+}
+
+// ── Helper : appel API Twitch Helix ──────────────────────────────────────────
+function twitchGet(path, token) {
+    return new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'api.twitch.tv',
+            path,
+            method:  'GET',
+            headers: {
+                'Client-ID':     process.env.TWITCH_CLIENT_ID,
+                'Authorization': `Bearer ${token}`
+            }
+        }, res => {
+            let raw = '';
+            res.on('data', c => raw += c);
+            res.on('end', () => {
+                try { resolve(JSON.parse(raw)); }
+                catch (e) { reject(e); }
+            });
+        });
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+// ── GET /launcher/twitch_token ────────────────────────────────────────────────
+// Retourne un App Access Token Twitch (sans exposer le client_secret au client)
+router.get('/twitch_token', async (req, res) => {
+    try {
+        const token = await getTwitchAppToken();
+        return res.json({ access_token: token });
+    } catch (err) {
+        console.error('[twitch_token]', err.message);
+        return res.status(500).json({ error: 'Impossible d\'obtenir le token Twitch' });
+    }
+});
+
+// ── GET /launcher/twitch_streams?user_login=xxx&user_login=yyy ───────────────
+// Proxy vers GET /helix/streams — retourne les streams en live pour les logins donnés
+// Format réponse : { data: [ { user_login, user_name, title, thumbnail_url, ... } ] }
+router.get('/twitch_streams', async (req, res) => {
+    try {
+        const logins = [].concat(req.query.user_login || []).filter(Boolean);
+        if (!logins.length) return res.json({ data: [] });
+
+        const token  = await getTwitchAppToken();
+        const params = logins.map(l => `user_login=${encodeURIComponent(l)}`).join('&');
+        const data   = await twitchGet(`/helix/streams?${params}&first=20`, token);
+
+        return res.json(data);
+    } catch (err) {
+        console.error('[twitch_streams]', err.message);
+        return res.status(500).json({ error: 'Erreur proxy Twitch streams' });
+    }
+});
+
+// ── GET /launcher/twitch_search?query=xxx ────────────────────────────────────
+// Proxy vers GET /helix/search/channels — cherche les streams dont le titre
+// contient le mot-clé (ex: @Le_Refuge_Emeraudien)
+// Format réponse : { data: [ { broadcaster_login, display_name, title, is_live, thumbnail_url } ] }
+router.get('/twitch_search', async (req, res) => {
+    try {
+        const query = req.query.query;
+        if (!query) return res.json({ data: [] });
+
+        const token = await getTwitchAppToken();
+
+        // On cherche les channels correspondants (max 20 résultats)
+        const data = await twitchGet(
+            `/helix/search/channels?query=${encodeURIComponent(query)}&first=20&live_only=true`,
+            token
+        );
+
+        // Filtre : seulement les streams en live dont le titre contient vraiment le tag
+        const filtered = (data.data || []).filter(s =>
+            s.is_live &&
+            s.title &&
+            s.title.toLowerCase().includes(query.toLowerCase())
+        );
+
+        // Pour les streams filtrés, on récupère les vraies thumbnails via /helix/streams
+        if (filtered.length > 0) {
+            const loginParams = filtered.map(s => `user_login=${encodeURIComponent(s.broadcaster_login)}`).join('&');
+            const streamsData = await twitchGet(`/helix/streams?${loginParams}&first=20`, token);
+
+            // Enrichit chaque résultat avec la vraie thumbnail
+            const thumbMap = new Map((streamsData.data || []).map(s => [s.user_login.toLowerCase(), s.thumbnail_url]));
+            filtered.forEach(s => {
+                const thumb = thumbMap.get(s.broadcaster_login.toLowerCase());
+                if (thumb) s.thumbnail_url = thumb;
+                // Normalise les champs pour correspondre au format /helix/streams
+                s.user_login = s.broadcaster_login;
+                s.user_name  = s.display_name;
+            });
+        }
+
+        return res.json({ data: filtered });
+    } catch (err) {
+        console.error('[twitch_search]', err.message);
+        return res.status(500).json({ error: 'Erreur proxy Twitch search' });
+    }
+});
+
 module.exports = router;
 
 // ── POST /launcher/uploadScreen ───────────────────────────
