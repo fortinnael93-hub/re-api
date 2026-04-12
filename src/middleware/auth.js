@@ -1,15 +1,16 @@
 const { db } = require('../db');
 
 async function requireAuth(req, res, next) {
-    const token =
-        req.query.token ||
-        req.query.authtoken ||
-        req.query.accessToken ||
-        req.headers['x-auth-token'] ||
-        (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '') ||
-        req.body?.accessToken ||
-        req.body?.token ||
-        null;
+const token =
+    req.query.token ||
+    req.query.authtoken ||
+    req.query.accessToken ||
+    req.headers['x-auth-token'] ||
+    (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '') ||
+    req.body?.accessToken ||
+    req.body?.token ||
+    req.body?.authtoken ||   // ← ajoute cette ligne
+    null;
 
     if (!token) {
         return res.status(401).json({ error: 'invalidtoken', description: 'Token requis' });
