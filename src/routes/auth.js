@@ -62,19 +62,12 @@ router.post('/reauth', async (req, res) => {
             return res.json({ error: 'Session expirée', type: 'error' });
         }
 
-        const sftpHost       = process.env.SFTP_HOST;
-        const sftpPrivateKey = process.env.SFTP_PRIVATE_KEY;
-        if (!sftpHost || !sftpPrivateKey)
-            return res.json({ error: 'Configuration SFTP manquante', type: 'error' });
-
-        return res.json({
-            error: 'reauth.success',
-            token: accessToken,
-            username: tokenRow.username,
-            role: tokenRow.role,
-            host: Buffer.from(sftpHost).toString('base64'),
-            privateKey: Buffer.from(sftpPrivateKey).toString('base64')
-        });
+return res.json({
+    error: 'reauth.success',
+    token: accessToken,
+    username: tokenRow.username,
+    role: tokenRow.role
+});
     } catch (err) {
         console.error('[reauth]', err);
         return res.json({ error: 'Erreur serveur', type: 'error' });
