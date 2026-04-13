@@ -63,7 +63,8 @@ router.post('/reauth', async (req, res) => {
         }
 
 return res.json({
-    error: 'reauth.success',
+    error: null,
+    type: 'reauth.success',
     token: accessToken,
     username: tokenRow.username,
     role: tokenRow.role
