@@ -6,7 +6,6 @@ const app        = express();
 
 app.use(cors());
 app.use(express.text());
-app.use(express.text({ type: 'application/json' }));  
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
