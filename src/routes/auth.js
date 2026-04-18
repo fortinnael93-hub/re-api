@@ -36,7 +36,8 @@ router.post('/auth', async (req, res) => {
         );
         await db.run(`UPDATE users SET last_login = NOW()::text WHERE id = $1`, [user.id]);
 
-      return res.json({ error: 'reauth.success', token: accessToken, username: tokenRow.username, role: tokenRow.role });
+
+return res.json({ error: null, type: 'auth.success', token: token, username: user.username, role: user.role });
     } catch (err) {
         console.error('[auth]', err);
         return res.json({ error: 'Erreur serveur' });
