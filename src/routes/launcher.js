@@ -254,10 +254,10 @@ router.get('/versions/:modpack/manifest_:name.json', requireAuth, async (req, re
 });
 
 // Fichiers d'un modpack (mods, etc.)
-router.get('/versions/:modpack/*', requireAuth, async (req, res) => {
+router.get('/versions/:modpack/mods/*', requireAuth, async (req, res) => {
     const { modpack } = req.params;
     const filePath = req.params[0];
-    const url = `${GITHUB_BASE}/${modpack}/${filePath}`;
+    const url = `${GITHUB_BASE}/${modpack}/mods/${filePath}`;
     res.redirect(url);
 });
 
