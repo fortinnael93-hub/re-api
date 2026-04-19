@@ -234,12 +234,14 @@ router.get('/versions/:modpack/manifest_:name.json', requireAuth, async (req, re
     const { modpack } = req.params;
     try {
         const url = `${GITHUB_BASE}/${modpack}/manifest_${modpack}.json`;
-        const response = await axios.get(url, {responseType: 'arraybuffer'});
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
         let text = response.data.toString('utf8');
+        
 
-        if (text.charCodeAt(0) === 0xFFFD || response.data[0] === 0xFF || response.data[0] === 0xFE {
+        if (text.charCodeAt(0) === 0xFFFD || response.data[0] === 0xFF || response.data[0] === 0xFE) {
             text = response.data.toString('utf16le');
         }
+        
         const json = JSON.parse(text);
         res.json(json);
     } catch (err) {
