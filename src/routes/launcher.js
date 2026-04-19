@@ -262,6 +262,36 @@ router.get('/versions/:modpack/mods/*', requireAuth, async (req, res) => {
 response.data.pipe(res);
 });
 
+// Manifest des binaires
+router.get('/versions/:modpack/binaries/manifest.json', requireAuth, async (req, res) => {
+    const { modpack } = req.params;
+    try {
+        const url = `${GITHUB_BASE}/${modpack}/binaries/manifest_binaries.json`;
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        // ... même logique BOM que pour le manifest modpack
+        const buf = Buffer.from(response.data);
+        let text = buf[0] === 0xFF && buf[1] === 0xFE
+            ? buf.slice(2).toString('utf16le')
+            : buf.toString('utf8').replace(/^\uFEFF/, '');
+        res.json(JSON.parse(text));
+    } catch (err) {
+        res.status(404).json({ error: 'Manifest binaires introuvable' });
+    }
+});
+
+// Fichiers binaires (Java, natives...)
+router.get('/versions/:modpack/binaries/*', requireAuth, async (req, res) => {
+    const { modpack } = req.params;
+    const filePath = req.params[0];
+    const url = `${GITHUB_BASE}/${modpack}/binaries/${filePath}`;
+    try {
+        const response = await axios.get(url, { responseType: 'stream' });
+        response.data.pipe(res);
+    } catch (err) {
+        res.status(404).json({ error: 'Fichier binaire introuvable' });
+    }
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // TWITCH
 // ═════════════════════════════════════════════════════════════════════════════
