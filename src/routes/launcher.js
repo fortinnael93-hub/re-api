@@ -292,6 +292,19 @@ router.get('/versions/:modpack/binaries/*', requireAuth, async (req, res) => {
     }
 });
 
+// Route générique pour tous les fichiers (libs, assets, minecraft.jar, etc.)
+router.get('/versions/:modpack/files/*', requireAuth, async (req, res) => {
+    const { modpack } = req.params;
+    const filePath = req.params[0];
+    const url = `${GITHUB_BASE}/${modpack}/${filePath}`;
+    try {
+        const response = await axios.get(url, { responseType: 'stream' });
+        response.data.pipe(res);
+    } catch (err) {
+        console.error('[launcher/files]', err.message);
+        res.status(404).json({ error: 'Fichier introuvable' });
+    }
+});
 // ═════════════════════════════════════════════════════════════════════════════
 // TWITCH
 // ═════════════════════════════════════════════════════════════════════════════
