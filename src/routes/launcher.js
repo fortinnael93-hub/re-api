@@ -258,7 +258,8 @@ router.get('/versions/:modpack/mods/*', requireAuth, async (req, res) => {
     const { modpack } = req.params;
     const filePath = req.params[0];
     const url = `${GITHUB_BASE}/${modpack}/mods/${filePath}`;
-    res.redirect(url);
+    const response = await axios.get(url, { responseType: 'stream' });
+response.data.pipe(res);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
