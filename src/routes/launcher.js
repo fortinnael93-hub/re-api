@@ -235,11 +235,18 @@ router.get('/versions/:modpack/manifest_:name.json', requireAuth, async (req, re
     try {
         const url = `${GITHUB_BASE}/${modpack}/manifest_${modpack}.json`;
         const response = await axios.get(url, { responseType: 'arraybuffer' });
-        let text = response.data.toString('utf8');
+        const buf = Buffer.from(response.data);
         
-
-        if (text.charCodeAt(0) === 0xFFFD || response.data[0] === 0xFF || response.data[0] === 0xFE) {
-            text = response.data.toString('utf16le');
+        let text;
+        // Détecte BOM UTF-16 LE (FF FE) ou UTF-16 BE (FE FF)
+        if (buf[0] === 0xFF && buf[1] === 0xFE) {
+            text = buf.toString('utf16le');
+        } else if (buf[0] === 0xFE && buf[1] === 0xFF) {
+            // UTF-16 BE — swap bytes
+            text = buf.swap16().toString('utf16le');
+        } else {
+            // UTF-8 avec ou sans BOM
+            text = buf.toString('utf8').replace(/^\uFEFF/, '');
         }
         
         const json = JSON.parse(text);
