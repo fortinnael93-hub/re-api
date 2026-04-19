@@ -237,14 +237,13 @@ router.get('/versions/:modpack/manifest_:name.json', requireAuth, async (req, re
         const response = await axios.get(url, { responseType: 'arraybuffer' });
         const buf = Buffer.from(response.data);
         
-        // Log les premiers bytes pour diagnostiquer
-        console.log('[manifest] premiers bytes:', buf.slice(0, 6).toString('hex'));
-        console.log('[manifest] taille buffer:', buf.length);
-        
-        // Retire le BOM UTF-8 (EF BB BF) ou tout autre BOM
-        let text = buf.toString('utf8');
-        text = text.replace(/^\uFEFF/, ''); // retire BOM unicode
-        text = text.replace(/^[\u0000-\u0008\u000B\u000C\u000E-\u001F]+/, ''); // retire chars de contrôle
+        // FF FE = BOM UTF-16 LE
+        let text;
+        if (buf[0] === 0xFF && buf[1] === 0xFE) {
+            text = buf.slice(2).toString('utf16le'); // retire le BOM puis décode
+        } else {
+            text = buf.toString('utf8').replace(/^\uFEFF/, '');
+        }
         
         const json = JSON.parse(text);
         res.json(json);
