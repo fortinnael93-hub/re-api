@@ -4,7 +4,7 @@ const { db }  = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const axios   = require('axios');
 
-const GITHUB_BASE = 'https://raw.githubusercontent.com/fortinnael93-hub/modpack-relaunch/master';
+const GITHUB_BASE = 'https://raw.githubusercontent.com/fortinnael93-hub/modpack-relaunch/main';
 
 // ── GET /launcher/home ────────────────────────────────────
 router.get('/home', requireAuth, async (req, res) => {
