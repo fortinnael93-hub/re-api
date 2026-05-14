@@ -444,3 +444,23 @@ router.get('/twitch_search', async (req, res) => {
 });
 
 module.exports = router;
+
+router.get('/instances', requireAuth, async (req, res) => {
+    return res.json({
+        "stable": {
+            "name": "stable",
+            "url": "https://refuge-api.onrender.com/launcher",
+            "loader": {
+                "minecraft_version": "1.20.1",
+                "loader_type": "forge",
+                "loader_version": "47.3.22"
+            },
+            "verify": true,
+            "ignored": [],
+            "jvm_args": [],
+            "game_args": [],
+            "whitelistActive": false,
+            "whitelist": []
+        }
+    });
+});
