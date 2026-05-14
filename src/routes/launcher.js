@@ -87,7 +87,7 @@ router.get('/files', async (req, res) => {
 
 router.get('/files/*', async (req, res) => {
     const filePath = req.params[0];
-    const url = `${GITHUB_BASE}/stable/${filePath}`;
+    const url = `https://media.githubusercontent.com/media/fortinnael93-hub/modpack-relaunch/master/stable/${filePath}`;
     try {
         const response = await axios.get(url, { responseType: 'stream' });
         response.data.pipe(res);
