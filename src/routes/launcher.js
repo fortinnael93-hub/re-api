@@ -64,6 +64,27 @@ router.get('/index', async (req, res) => {
 
 // ── GET /launcher/files/* ─────────────────────────────────
 // Fichiers demandés par minecraft-java-core
+
+router.get('/files', async (req, res) => {
+    try {
+        const url = `${GITHUB_BASE}/stable/manifest_stable.json`;
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const json = JSON.parse(decodeBuffer(Buffer.from(response.data)));
+
+        const assets = Object.entries(json).map(([filePath, hash]) => ({
+            path: filePath,
+            hash: hash,
+            size: 0,
+            url: `https://refuge-api.onrender.com/launcher/files/${filePath}`
+        }));
+
+        res.json(assets);
+    } catch (err) {
+        console.error('[launcher/files]', err.message);
+        res.status(404).json({ error: 'Manifest introuvable' });
+    }
+});
+
 router.get('/files/*', async (req, res) => {
     const filePath = req.params[0];
     const url = `${GITHUB_BASE}/stable/${filePath}`;
