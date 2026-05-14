@@ -26,7 +26,16 @@ router.get('/', async (req, res) => {
         const url = `${GITHUB_BASE}/stable/manifest_stable.json`;
         const response = await axios.get(url, { responseType: 'arraybuffer' });
         const json = JSON.parse(decodeBuffer(Buffer.from(response.data)));
-        res.json(json);
+
+        // Convertir {path: hash} en [{path, hash, size, url}]
+        const assets = Object.entries(json).map(([filePath, hash]) => ({
+            path: filePath,
+            hash: hash,
+            size: 0,
+            url: `https://refuge-api.onrender.com/launcher/files/${filePath}`
+        }));
+
+        res.json(assets);
     } catch (err) {
         console.error('[launcher/]', err.message);
         res.status(404).json({ error: 'Manifest introuvable' });
@@ -34,7 +43,7 @@ router.get('/', async (req, res) => {
 });
 
 // ── GET /launcher/files/* ─────────────────────────────────
-// Fichiers génériques demandés par minecraft-java-core
+// Fichiers demandés par minecraft-java-core
 router.get('/files/*', async (req, res) => {
     const filePath = req.params[0];
     const url = `${GITHUB_BASE}/stable/${filePath}`;
@@ -81,12 +90,11 @@ router.get('/current_live2', async (req, res) => {
 
 router.get('/updateNotifications', (req, res) => res.json({ ok: true }));
 
-// ── POST /launcher/uploadCrash ────────────────────────────
 router.post('/uploadCrash', async (req, res) => {
     return res.json({ ok: true, message: 'Crash report reçu' });
 });
 
-// ── Twitch token cache ────────────────────────────────────
+// ── Twitch ────────────────────────────────────────────────
 let _twitchTokenCache = null;
 
 async function getTwitchAppToken() {
@@ -281,7 +289,6 @@ router.get('/background/:modpack', requireAuth, async (req, res) => {
     }
 });
 
-// ── GET /launcher/getNotifications ───────────────────────
 router.get('/getNotifications', requireAuth, (req, res) => res.json({}));
 
 // ── GET /launcher/getMoreMods ─────────────────────────────
