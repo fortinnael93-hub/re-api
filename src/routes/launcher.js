@@ -443,7 +443,7 @@ router.get('/twitch_search', async (req, res) => {
     }
 });
 
-module.exports = router;
+
 
 router.get('/instances', requireAuth, async (req, res) => {
     return res.json({
@@ -464,3 +464,31 @@ router.get('/instances', requireAuth, async (req, res) => {
         }
     });
 });
+
+// ── GET /launcher ─────────────────────────────────────────
+router.get('/', requireAuth, async (req, res) => {
+    try {
+        const url = `${GITHUB_BASE}/stable/manifest_stable.json`;
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const buf = Buffer.from(response.data);
+        
+        let text;
+        if (buf[0] === 0xFF && buf[1] === 0xFE) {
+            text = buf.slice(2).toString('utf16le');
+        } else {
+            text = buf.toString('utf8').replace(/^\uFEFF/, '');
+        }
+        
+        const json = JSON.parse(text);
+        res.json(json);
+    } catch (err) {
+        console.error('[launcher/]', err.message);
+        res.status(404).json({ error: 'Manifest introuvable' });
+    }
+});
+
+router.get('/instances', requireAuth, async (req, res) => { ... });
+
+router.get('/', requireAuth, async (req, res) => { ... });
+
+module.exports = router;
