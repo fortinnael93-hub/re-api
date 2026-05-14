@@ -487,8 +487,4 @@ router.get('/', requireAuth, async (req, res) => {
     }
 });
 
-router.get('/instances', requireAuth, async (req, res) => { ... });
-
-router.get('/', requireAuth, async (req, res) => { ... });
-
 module.exports = router;
